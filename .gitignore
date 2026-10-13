@@ -41,3 +41,23 @@ example
 # generated native folders
 /ios
 /android
+
+# Local Supabase credentials
+.env
+
+# ai-lab: throwaway pose extraction experiment
+# Everything derived or huge. The .py files and NOTES.md are the real work
+# and they stay in git; all of this can be regenerated with batch.py.
+ai-lab/.venv/
+ai-lab/*.task
+ai-lab/*.mp4
+ai-lab/*.png
+ai-lab/*.html
+ai-lab/pose.json
+ai-lab/results.json
+ai-lab/runs/
+ai-lab/videos/
+
+# Python bytecode from ai-lab
+__pycache__/
+*.pyc
