@@ -39,6 +39,7 @@ import urllib.request
 
 import config as C
 import features as F
+import notes as N
 
 HERE = pathlib.Path(__file__).parent
 ENV = HERE.parent / ".env"
@@ -80,9 +81,15 @@ The overall note goes at 0 seconds and may run to two sentences. It should \
 say what the sequence as a whole shows, and name the one thing most worth \
 working on.
 
+Every moment gets a note. Not the interesting ones, not a selection: every \
+numbered moment in the list, including the ones where the tracker lost the \
+climber, which are worth a sentence saying what cannot be judged there. The \
+count is given at the end of the list and the reply must match it.
+
 Return JSON only:
-{"overall": "<sentence>", "notes": [{"at": <seconds>, "text": "<sentence>"}]}
-with one notes entry per moment given, same timestamps."""
+{"overall": "<sentence>",
+ "notes": [{"n": <moment number>, "at": <seconds>, "text": "<sentence>"}]}
+one entry per numbered moment, in order, with the timestamps as given."""
 
 
 def env():
@@ -177,13 +184,17 @@ def timeline(run_dir):
 
 
 def build_prompt(built, run_dir):
+    # Numbered, because an unnumbered list of eighteen invites a model to
+    # pick the interesting ones. The first run answered five of eighteen and
+    # left thirteen moments showing the template sentences underneath, which
+    # reads worse than templates everywhere.
     blocks = []
-    for at, group in moments(built["notes"]):
+    groups = moments(built["notes"])
+    for i, (at, group) in enumerate(groups, 1):
+        head = f"[{i}] {at:.1f}s"
         lines = [describe(n) for n in group]
-        if len(lines) == 1:
-            blocks.append(f"{at:6.1f}s  {lines[0]}")
-        else:
-            blocks.append(f"{at:6.1f}s  " + f"\n{'':9}".join(lines))
+        pad = " " * (len(head) + 2)
+        blocks.append(f"{head}  " + f"\n{pad}".join(lines))
 
     seq = timeline(run_dir)
     return (
@@ -194,14 +205,17 @@ def build_prompt(built, run_dir):
         # five words and stops the model guessing at the abbreviations.
         "Full sequence of limb moves (LH/RH hands, LF/RF feet), for context:\n"
         f"{seq}\n\n"
-        "Moments to comment on:\n" + "\n".join(blocks)
+        f"Moments to comment on ({len(groups)} of them, "
+        f"every one needs a note):\n" + "\n".join(blocks)
+        + f"\n\nReturn {len(groups)} notes, numbered 1 to {len(groups)}, "
+          "plus the overall note."
     )
 
 
 def ask(key, prompt):
     body = {
         "model": MODEL,
-        "max_tokens": 2000,
+        "max_tokens": 4000,
         "system": SYSTEM,
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -233,14 +247,21 @@ def main():
                     help="쓰고 나서 바로 그 영상에 넣기")
     args = ap.parse_args()
 
-    path = HERE / "runs" / args.run / "notes.json"
-    if not path.exists():
-        sys.exit(f"{path} 가 없습니다. 먼저: .venv/bin/python notes.py")
-    built = json.loads(path.read_text())
+    run_dir = HERE / "runs" / args.run
+    pose = run_dir / "pose.json"
+    if not pose.exists():
+        sys.exit(f"{pose} 가 없습니다. 먼저: .venv/bin/python batch.py videos")
+
+    # Measured fresh from the pose rather than read back from notes.json.
+    # Reading the file meant a second run fed this script its own output: the
+    # overall note written last time came back as moment [1]. Building from
+    # the pose also guarantees the thresholds are whatever config.py says now.
+    built = N.build(pose)
+    path = run_dir / "notes.json"
     if not built["notes"]:
         sys.exit("노트가 0개입니다.")
 
-    prompt = build_prompt(built, path.parent)
+    prompt = build_prompt(built, run_dir)
 
     if args.dry_run:
         print("=" * 72)
@@ -273,7 +294,8 @@ def main():
     # Matched on timestamp, not position. The order should hold, but a note
     # silently attached to the wrong moment is the one failure that would not
     # look like a failure.
-    by_at = {round(float(w["at"]), 1): w["text"] for w in written}
+    by_n = {int(w["n"]): w["text"] for w in written if "n" in w}
+    by_at = {round(float(w["at"]), 1): w["text"] for w in written if "at" in w}
 
     model = f"{built['notes'][0]['model'].split('+')[0]}+{MODEL}"
     out = []
@@ -289,8 +311,8 @@ def main():
         })
 
     kept = 0
-    for at, group in groups:
-        text = by_at.get(round(at, 1))
+    for i, (at, group) in enumerate(groups, 1):
+        text = by_n.get(i) or by_at.get(round(at, 1))
         if text is None:
             # No sentence came back for this moment, so the templates stay.
             # Dropping it would quietly lose a measured moment.
