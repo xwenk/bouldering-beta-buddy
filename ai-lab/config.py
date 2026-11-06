@@ -175,6 +175,14 @@ HAND_FOOT_RATIO = 2.5
 # and a foot placed at the start of the climb excuses every reach after it.
 FOOT_LEAD_S = 3.0
 
+# How far either side of a moment to look when judging it.
+#
+# A measurement at an instant can be described but not judged: whether a move
+# was a good idea is a question about what it cost, and the cost arrives
+# afterwards. Two seconds covers a reach and the recovery from it without
+# swallowing the next move whole.
+CONTEXT_S = 2.0
+
 # Below this an elbow angle is not a climber pulling hard.
 #
 # MIN_UPPER_ARM already drops frames where the arm collapsed to nothing, but

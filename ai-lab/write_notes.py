@@ -70,10 +70,17 @@ Where a note is "work_on", say what to do instead, concretely enough to try \
 on the next attempt: which limb moves first, where the weight goes, whether \
 to set a foot before reaching. "Move better" is not an alternative.
 
-Use the sequence. A moment is part of a climb, not an isolated fact: a long \
-reach followed by a pause and then a foot move is one piece of climbing, and \
-saying so is the difference between coaching and captioning. Refer to what \
-came before or after when it explains the moment.
+Each moment comes with what the body was doing in the seconds before and \
+after it. Use that, because it is what makes a judgement possible. A move is \
+not wrong because of how it looked at one instant; it is wrong if it cost \
+something, and the cost is in the after. Hips further out than before, arms \
+more bent than before, a foot that had to be replaced twice to recover, a \
+long wait before anything moved again: those are the evidence. When the after \
+is as good as the before, the move worked, and saying so is as useful as a \
+correction.
+
+Use the whole sequence too. A moment is part of a climb, not an isolated \
+fact, and where it sits changes what it means.
 
 Rules:
 
@@ -206,6 +213,40 @@ def moments(notes, window=0.6):
     return out
 
 
+def context_line(rows, moves, at):
+    """
+    The two seconds either side of a moment, as one line.
+
+    Written as a before and after pair on purpose. The model is being asked
+    what a move cost, and a cost is a difference: hips further out than they
+    were, arms more bent than they were, a foot that had to be replaced twice
+    afterwards. Handing over two states and letting it subtract is what makes
+    that visible.
+    """
+    a = F.around(rows, moves, at)
+    def side(d, label):
+        if not d:
+            return f"{label}: not measured"
+        bits = []
+        if d["hips_out"] is not None:
+            bits.append(f"hips {d['hips_out']} out (worst {d['hips_worst']})")
+        if d["elbow_min"] is not None:
+            bits.append(f"elbows down to {d['elbow_min']}deg")
+        bits.append("moved " + (", ".join(d["limbs"]) if d["limbs"] else "nothing"))
+        return f"{label}: " + "; ".join(bits)
+
+    settle = (f"next limb moved {a['settle_s']}s later"
+              if a["settle_s"] is not None else "nothing moved again")
+    return (f"{side(a['before'], f'{C.CONTEXT_S:.0f}s before')} | "
+            f"{side(a['after'], f'{C.CONTEXT_S:.0f}s after')} | {settle}")
+
+
+def series_rows(run_dir):
+    data, frames = F.load(run_dir / "pose.json")
+    return [r for r in F.series(frames, data["width"] / data["height"])
+            if r["vis"] >= C.MIN_CONFIDENCE]
+
+
 def timeline(run_dir):
     """
     Every limb move in order, as context rather than as something to comment on.
@@ -272,12 +313,17 @@ def build_prompt(built, run_dir, who=""):
     # pick the interesting ones. The first run answered five of eighteen and
     # left thirteen moments showing the template sentences underneath, which
     # reads worse than templates everywhere.
+    rows = series_rows(run_dir)
+    moves = F.find_limb_moves(rows) if len(rows) > 8 else []
+
     blocks = []
     groups = moments(built["notes"])
     for i, (at, group) in enumerate(groups, 1):
         head = f"[{i}] {at:.1f}s"
-        lines = [describe(n) for n in group]
         pad = " " * (len(head) + 2)
+        lines = [describe(n) for n in group]
+        if rows:
+            lines.append(context_line(rows, moves, at))
         blocks.append(f"{head}  " + f"\n{pad}".join(lines))
 
     seq = timeline(run_dir)

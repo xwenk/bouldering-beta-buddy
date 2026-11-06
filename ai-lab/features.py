@@ -262,6 +262,54 @@ def find_limb_moves(rows):
     return sorted(moves, key=lambda m: m["to_t"])
 
 
+def around(rows, moves, t, window=None):
+    """
+    What the body was doing either side of a moment.
+
+    Every measurement so far has been an instant: the elbow angle at 29.4
+    seconds, the reach at 30.7. An instant can be described but it cannot be
+    judged, because whether a move was a good idea is a question about what it
+    cost, and the cost arrives afterwards. A long reach with no foot under it
+    is not wrong because of how it looked; it is wrong if the body swung out
+    and took four seconds to get back.
+
+    So this reads the same measurements over the stretch before and the
+    stretch after, and reports both. The difference between them is the part
+    worth saying out loud.
+
+    `settle_s` is how long after the moment until the next limb moved, which
+    is the plainest measure of recovery there is: a move that works is
+    followed by the next one, and a move that does not is followed by hanging
+    there.
+    """
+    w = C.CONTEXT_S if window is None else window
+
+    def span(lo, hi):
+        rs = [r for r in rows if lo <= r["t"] <= hi]
+        if not rs:
+            return None
+        elbows = [min(r["l_elbow"], r["r_elbow"]) for r in rs
+                  if r["arm_ok"] and not math.isnan(r["l_elbow"])
+                  and not math.isnan(r["r_elbow"])
+                  and min(r["l_elbow"], r["r_elbow"]) >= C.MIN_PLAUSIBLE_ELBOW]
+        hips = [r["over_feet"] for r in rs if r["foot_vis"] >= C.MIN_FOOT_CONFIDENCE]
+        return {
+            "hips_out": round(sum(hips) / len(hips), 2) if hips else None,
+            "hips_worst": round(max(hips), 2) if hips else None,
+            "elbow_min": round(min(elbows)) if elbows else None,
+            "limbs": [m["limb"] for m in moves if lo <= m["to_t"] <= hi],
+        }
+
+    after_moves = [m for m in moves if m["to_t"] > t + 0.05]
+    return {
+        "before": span(t - w, t),
+        "after": span(t, t + w),
+        # None when nothing moved again, which is the end of the climb.
+        "settle_s": (round(after_moves[0]["to_t"] - t, 1)
+                     if after_moves else None),
+    }
+
+
 def hand_before_foot(rows):
     """
     Hand moves made without moving a foot first.
