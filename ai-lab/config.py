@@ -108,3 +108,21 @@ DYNAMIC_SPEED = 1.5
 # A hand travelling further than this in one go is a big reach, which is the
 # kind of move where a climber's height actually changes the answer.
 BIG_REACH = 1.2
+
+# ...and further than this is not a reach at all.
+#
+# A torso is roughly 0.3 of a person, so 2.5 torso lengths is most of a body
+# height moved by one hand in one go. Nobody does that. Anything above it is
+# the tracker finding the wrist somewhere else, and without this bound it
+# comes out as the biggest reach of the climb and sorts to the top of every
+# list. Seen as "long reach down, 5.8 torso lengths".
+MAX_REACH = 2.5
+
+# Below this an elbow angle is not a climber pulling hard.
+#
+# MIN_UPPER_ARM already drops frames where the arm collapsed to nothing, but
+# tracking can also put the wrist near the shoulder while the upper arm still
+# measures a plausible length, and that reads as 10 to 20 degrees. A fully
+# folded arm with a hand on a hold is about 30 to 40 degrees; below that is
+# anatomy nobody has.
+MIN_PLAUSIBLE_ELBOW = 30

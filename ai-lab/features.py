@@ -164,14 +164,23 @@ def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S):
             i += 1
             continue
 
-        moves.append({
-            "from_t": rows[anchor_i]["t"],
-            "to_t": rows[i]["t"],
-            "held_s": round(rows[i]["t"] - rows[anchor_i]["t"], 2),
-            # Negative dy is upward: y grows downward in image coordinates.
-            "reach": round(dist(landed, anchor) / rows[i]["torso"], 2),
-            "up": round((anchor[1] - landed[1]) / rows[i]["torso"], 2),
-        })
+        reach = dist(landed, anchor) / rows[i]["torso"]
+
+        # A hand does not travel most of a body height in one move. Above
+        # MAX_REACH the tracker found the wrist somewhere else, and keeping
+        # it would put the worst frame of the video at the top of every list
+        # sorted by reach. The anchor still advances, because wherever the
+        # hand is now is where the next move starts from.
+        if reach <= C.MAX_REACH:
+            moves.append({
+                "from_t": rows[anchor_i]["t"],
+                "to_t": rows[i]["t"],
+                "held_s": round(rows[i]["t"] - rows[anchor_i]["t"], 2),
+                "reach": round(reach, 2),
+                # Negative dy is upward: y grows downward in image coordinates.
+                "up": round((anchor[1] - landed[1]) / rows[i]["torso"], 2),
+            })
+
         anchor = landed
         anchor_i = j
         i = j + 1
