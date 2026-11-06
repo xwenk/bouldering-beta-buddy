@@ -167,6 +167,14 @@ OFF_BALANCE = 0.8
 # little high; this is set with that in mind.
 HAND_FOOT_RATIO = 2.5
 
+# How long before a hand move a foot move still counts as having set it up.
+#
+# "Move your feet before you reach" is the most repeated piece of advice a
+# newer climber gets, and this is the window that decides whether they did.
+# Too short and a deliberate, well prepared sequence reads as sloppy; too long
+# and a foot placed at the start of the climb excuses every reach after it.
+FOOT_LEAD_S = 3.0
+
 # Below this an elbow angle is not a climber pulling hard.
 #
 # MIN_UPPER_ARM already drops frames where the arm collapsed to nothing, but

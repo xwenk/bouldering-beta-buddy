@@ -33,6 +33,34 @@ import {
   VideoComment,
 } from '@/lib/videos';
 
+/**
+ * How a note reads at a glance, from the kind the analysis gave it.
+ *
+ * The same green and red the rest of the app uses for sent and fallen, because
+ * a note saying you did something well and a note saying you fell mean the
+ * same thing to someone scanning the page, and a second palette for the same
+ * idea would only be a second thing to learn.
+ *
+ * Anything unrecognised falls through to the neutral treatment rather than
+ * disappearing. The vocabulary changes whenever the prompt does, and a note
+ * the app has not been taught about should still be readable.
+ */
+function tone(kind: string | null, c: ReturnType<typeof useColors>) {
+  switch (kind) {
+    case 'good':
+      return { soft: c.sentSoft, ink: c.sent, muted: false };
+    case 'work_on':
+      return { soft: c.fallSoft, ink: c.fall, muted: false };
+    case 'info':
+      // Stretches the analysis could not see. Present, because silence over a
+      // gap reads as nothing having happened, but quiet, because it is not
+      // coaching.
+      return { soft: c.backgroundElement, ink: c.textFaint, muted: true };
+    default:
+      return { soft: c.accentSoft, ink: c.accent, muted: false };
+  }
+}
+
 export default function VideoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -222,28 +250,37 @@ export default function VideoScreen() {
             <Ionicons name="sparkles" size={16} color={c.accent} />
             <SectionLabel>What the analysis saw</SectionLabel>
           </Row>
-          {analysis.map((a) => (
-            <Pressable key={a.id} onPress={() => seekTo(a.at_seconds)}>
-              <Card>
-                <Row>
-                  <View
-                    style={{
-                      backgroundColor: c.accentSoft,
-                      borderRadius: Radius.sm,
-                      paddingHorizontal: Spacing.two,
-                      paddingVertical: 3,
-                    }}>
-                    <Text style={{ color: c.accent, fontSize: 12, fontWeight: '800' }}>
-                      {atLabel(a.at_seconds)}
+          {analysis.map((a) => {
+            const t = tone(a.kind, c);
+            return (
+              <Pressable key={a.id} onPress={() => seekTo(a.at_seconds)}>
+                <Card>
+                  <Row>
+                    <View
+                      style={{
+                        backgroundColor: t.soft,
+                        borderRadius: Radius.sm,
+                        paddingHorizontal: Spacing.two,
+                        paddingVertical: 3,
+                      }}>
+                      <Text style={{ color: t.ink, fontSize: 12, fontWeight: '800' }}>
+                        {atLabel(a.at_seconds)}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        color: t.muted ? c.textSecondary : c.text,
+                        fontSize: 14,
+                        flex: 1,
+                        lineHeight: 20,
+                      }}>
+                      {a.note}
                     </Text>
-                  </View>
-                  <Text style={{ color: c.text, fontSize: 14, flex: 1, lineHeight: 20 }}>
-                    {a.note}
-                  </Text>
-                </Row>
-              </Card>
-            </Pressable>
-          ))}
+                  </Row>
+                </Card>
+              </Pressable>
+            );
+          })}
         </>
       ) : video.ai_score == null ? (
         <Card>

@@ -262,6 +262,46 @@ def find_limb_moves(rows):
     return sorted(moves, key=lambda m: m["to_t"])
 
 
+def hand_before_foot(rows):
+    """
+    Hand moves made without moving a foot first.
+
+    The most repeated piece of advice given to a newer climber is to move
+    their feet before they reach, because a hand that leaves early carries
+    the weight the legs should have taken. Until now nothing here could tell
+    one from the other: the move list said a hand moved, not whether anything
+    had been set up underneath it.
+
+    Measured off the order the limbs actually moved in, which is already
+    known. A hand move counts as prepared when either foot moved inside
+    FOOT_LEAD_S before it.
+
+    Reported with the gap, because the number is the point. A reach two
+    seconds after a foot placement is a different move from one eight
+    seconds after, even though neither has a foot move immediately before.
+    """
+    moves = find_limb_moves(rows)
+    out = []
+    for i, m in enumerate(moves):
+        if not m["limb"].endswith("H"):
+            continue
+        prior = [p for p in moves[:i]
+                 if p["limb"].endswith("F")
+                 and m["to_t"] - p["to_t"] <= C.FOOT_LEAD_S]
+        if prior:
+            continue
+        feet = [p for p in moves[:i] if p["limb"].endswith("F")]
+        out.append({
+            "t": m["to_t"],
+            "hand": m["limb"][0],
+            "reach": m["reach"],
+            # None when no foot has moved at all yet, which is the start of
+            # the climb rather than a mistake.
+            "since_foot": round(m["to_t"] - feet[-1]["to_t"], 1) if feet else None,
+        })
+    return out
+
+
 def high_steps(rows):
     """
     Moments a foot was placed high enough to fold the knee right up.

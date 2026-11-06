@@ -52,9 +52,23 @@ You are a bouldering coach reviewing one climb with the climber. Everything \
 you know about it was measured from the video by a pose estimation pipeline; \
 you have not seen the footage.
 
-You are given the full sequence of limb movements, then the moments worth \
-talking about. Write one coaching note per moment, plus one overall note \
-about the climb as a whole.
+You are given the climber's build, the full sequence of limb movements, then \
+the moments worth talking about. Write one coaching note per moment, plus one \
+overall note about the climb as a whole.
+
+Every note is labelled with how it should be read:
+
+  "good"     the measurements show something done well
+  "work_on"  the measurements show something worth changing
+  "info"     neither, usually a stretch the tracker could not see
+
+Be honest with the labels. A climb where nothing is "good" is as suspect as \
+one where nothing is "work_on". The label is what the climber sees first, so \
+it has to match the sentence.
+
+Where a note is "work_on", say what to do instead, concretely enough to try \
+on the next attempt: which limb moves first, where the weight goes, whether \
+to set a foot before reaching. "Move better" is not an alternative.
 
 Use the sequence. A moment is part of a climb, not an isolated fact: a long \
 reach followed by a pause and then a foot move is one piece of climbing, and \
@@ -83,6 +97,10 @@ the thing the caveat says is unknown.
 when the measurements show it, and say which measurement.
 - Plain language. "Your hips were out to the side of your feet", not \
 "centre of mass lateral displacement".
+- Use the climber's build when it changes the advice. An even or negative ape \
+index means reaching further is not available to them and the answer is \
+footwork or body position instead. Never tell somebody to reach further to \
+solve a problem their span does not give them.
 - No dashes as punctuation. Use a comma, a semicolon or a full stop.
 - Second person, under 30 words each.
 - A moment with several measurements gets one sentence covering them, not one \
@@ -99,7 +117,9 @@ count is given at the end of the list and the reply must match it.
 
 Return JSON only:
 {"overall": "<sentence>",
- "notes": [{"n": <moment number>, "at": <seconds>, "text": "<sentence>"}]}
+ "overall_tone": "good" | "work_on" | "info",
+ "notes": [{"n": <moment number>, "at": <seconds>,
+            "tone": "good" | "work_on" | "info", "text": "<sentence>"}]}
 one entry per numbered moment, in order, with the timestamps as given."""
 
 
@@ -124,7 +144,16 @@ def describe(note):
     f = note["facts"]
     n = note["note"]
 
-    if "reach_torso" in f:
+    # Checked before reach_torso, which this one also carries. Matching on a
+    # shared key first described it as an ordinary reach and dropped the part
+    # that makes it worth saying.
+    if "since_foot_s" in f:
+        hand = "left" if f["hand"] == "L" else "right"
+        line = (f"{hand} hand reached {f['reach_torso']} torso lengths with no "
+                f"foot move in the {f['since_foot_s']}s before it "
+                f"(a foot counts as setting up a reach within "
+                f"{f['foot_lead_window_s']:.0f}s)")
+    elif "reach_torso" in f:
         hand = "left" if f["hand"] == "L" else "right"
         line = (f"{hand} hand moved {f['reach_torso']} torso lengths "
                 f"{f['direction']} (long reach starts at {f['threshold_torso']})")
@@ -194,7 +223,51 @@ def timeline(run_dir):
     return "  ".join(parts)
 
 
-def build_prompt(built, run_dir):
+def climber(url, key, video_id):
+    """
+    The build the app already asks for, which nothing has been using.
+
+    Height and ape index are in profiles because reach and span change which
+    beta works for a person, which is the premise of the whole app. The
+    analysis has been ignoring them: a note telling somebody to reach further
+    is useless advice for a climber whose span does not reach further, and the
+    measurement layer had no way to know.
+
+    Returns a line for the prompt, or nothing when the profile is empty.
+    """
+    if not video_id:
+        return ""
+    req = urllib.request.Request(
+        f"{url}/rest/v1/videos?select=climber_id,profiles!videos_climber_id_fkey"
+        f"(height_cm,ape_index_cm,weight_kg)&id=eq.{video_id}",
+        headers={"apikey": key, "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            rows = json.load(r)
+    except Exception:
+        return ""
+    if not rows or not rows[0].get("profiles"):
+        return ""
+
+    p = rows[0]["profiles"]
+    bits = []
+    if p.get("height_cm"):
+        bits.append(f"{p['height_cm']} cm tall")
+    ape = p.get("ape_index_cm")
+    if ape is not None:
+        # Ape index is span minus height, so zero is the common case and the
+        # sign is what matters: a negative one cannot solve a reach problem by
+        # reaching.
+        bits.append("arm span equal to height (ape index 0)" if ape == 0
+                    else f"arm span {abs(ape)} cm "
+                         f"{'longer' if ape > 0 else 'shorter'} than height "
+                         f"(ape index {ape:+d})")
+    if p.get("weight_kg"):
+        bits.append(f"{p['weight_kg']} kg")
+    return "Climber: " + ", ".join(bits) + ".\n" if bits else ""
+
+
+def build_prompt(built, run_dir, who=""):
     # Numbered, because an unnumbered list of eighteen invites a model to
     # pick the interesting ones. The first run answered five of eighteen and
     # left thirteen moments showing the template sentences underneath, which
@@ -209,9 +282,13 @@ def build_prompt(built, run_dir):
 
     seq = timeline(run_dir)
     return (
+        who +
         f"Climb: {built['duration_s']} seconds, "
         f"{built['hand_moves']} hand moves, {built['foot_moves']} foot moves.\n"
-        f"Frames the tracker could use: {built['usable_samples']}.\n\n"
+        f"Frames the tracker could use: {built['usable_samples']}.\n"
+        f"Hand moves made without a foot move in the "
+        f"{C.FOOT_LEAD_S:.0f} seconds before: "
+        f"{built['reaches_without_feet']} of {built['hand_moves']}.\n\n"
         # LH and RH are hands, LF and RF are feet. Spelling that out costs
         # five words and stops the model guessing at the abbreviations.
         "Full sequence of limb moves (LH/RH hands, LF/RF feet), for context:\n"
@@ -272,7 +349,10 @@ def main():
     if not built["notes"]:
         sys.exit("노트가 0개입니다.")
 
-    prompt = build_prompt(built, run_dir)
+    e = env()
+    who = climber(e.get("EXPO_PUBLIC_SUPABASE_URL", ""),
+                  e.get("EXPO_PUBLIC_SUPABASE_ANON_KEY", ""), args.push)
+    prompt = build_prompt(built, run_dir, who)
 
     if args.dry_run:
         print("=" * 72)
@@ -288,7 +368,7 @@ def main():
         print("--dry-run 이라 호출하지 않았습니다.")
         return 0
 
-    key = env().get("ANTHROPIC_API_KEY")
+    key = e.get("ANTHROPIC_API_KEY")
     if not key:
         print(".env 에 ANTHROPIC_API_KEY 가 없습니다.")
         print("console.anthropic.com 에서 만든 뒤 .env 에 한 줄 추가해주세요:\n")
@@ -305,15 +385,16 @@ def main():
     # Matched on timestamp, not position. The order should hold, but a note
     # silently attached to the wrong moment is the one failure that would not
     # look like a failure.
-    by_n = {int(w["n"]): w["text"] for w in written if "n" in w}
-    by_at = {round(float(w["at"]), 1): w["text"] for w in written if "at" in w}
+    by_n = {int(w["n"]): w for w in written if "n" in w}
+    by_at = {round(float(w["at"]), 1): w for w in written if "at" in w}
 
     model = f"{built['notes'][0]['model'].split('+')[0]}+{MODEL}"
     out = []
     if result.get("overall"):
         out.append({
             "at_seconds": 0.0,
-            "kind": "summary",
+            "kind": result.get("overall_tone") or "summary",
+            "category": "summary",
             "note": result["overall"],
             "facts": {"hand_moves": built["hand_moves"],
                       "foot_moves": built["foot_moves"],
@@ -323,7 +404,8 @@ def main():
 
     kept = 0
     for i, (at, group) in enumerate(groups, 1):
-        text = by_n.get(i) or by_at.get(round(at, 1))
+        got = by_n.get(i) or by_at.get(round(at, 1))
+        text = got["text"] if got else None
         if text is None:
             # No sentence came back for this moment, so the templates stay.
             # Dropping it would quietly lose a measured moment.
@@ -332,9 +414,12 @@ def main():
         kept += 1
         out.append({
             "at_seconds": at,
-            # A moment can mix kinds; the first one is what the screen colours
-            # it by and the sentence covers the rest.
-            "kind": group[0]["kind"],
+            # `kind` carries the tone rather than the category. It is the one
+            # free text column the table has, the schema always expected
+            # values like these, and tone is what a reader needs first:
+            # whether this is something they did well or something to change.
+            "kind": got.get("tone") or group[0]["kind"],
+            "category": group[0]["kind"],
             "note": text,
             "templates": [g["note"] for g in group],
             "facts": {k: v for g in group for k, v in g["facts"].items()},

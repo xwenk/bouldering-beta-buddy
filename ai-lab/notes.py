@@ -271,6 +271,47 @@ def off_balance(rows, gaps):
     return out
 
 
+def reached_without_feet(rows, gaps):
+    """
+    The big reaches made without moving a foot first.
+
+    Every hand move without a foot under it is not worth a note; most of them
+    are small and nobody would mention them. The ones that matter are the long
+    reaches, where the difference between having set the feet and not is the
+    difference between a move that works and one that barely does.
+
+    Sorted by reach, because that is what makes one of these worth saying.
+    """
+    out = []
+    for h in sorted(F.hand_before_foot(rows), key=lambda h: -h["reach"]):
+        if h["reach"] < C.BIG_REACH:
+            break
+        if h["since_foot"] is None:
+            continue           # nothing to have moved yet; start of the climb
+        if overlaps_gap(h["t"], h["t"], gaps):
+            continue
+        if any(abs(h["t"] - n["at_seconds"]) < MIN_SPACING_S for n in out):
+            continue
+        out.append({
+            "at_seconds": secs(h["t"]),
+            "kind": "technique",
+            "note": (
+                f"Reached {h['reach']:.1f} torso lengths with the "
+                f"{'left' if h['hand'] == 'L' else 'right'} hand "
+                f"{h['since_foot']:.1f} seconds after the last foot move."
+            ),
+            "facts": {
+                "reach_torso": round(h["reach"], 2),
+                "hand": h["hand"],
+                "since_foot_s": h["since_foot"],
+                "foot_lead_window_s": C.FOOT_LEAD_S,
+            },
+        })
+        if len(out) == MAX_PER_KIND:
+            break
+    return out
+
+
 def footwork_rate(rows, hand_moves, foot_moves):
     """
     How often the feet moved compared to the hands, over the whole climb.
@@ -362,6 +403,7 @@ def build(pose_path):
         + dynamic_moves(rows)
         + high_steps(rows, gaps)
         + off_balance(rows, gaps)
+        + reached_without_feet(rows, gaps)
         + footwork_rate(rows, hands, feet)
         + coverage_gaps(rows)
     )
@@ -379,6 +421,10 @@ def build(pose_path):
         "usable_samples": len(rows),
         "hand_moves": len(hands),
         "foot_moves": len(feet),
+        # How much of the climbing was done by reaching before setting a
+        # foot. One instance is a move; half the climb is a habit, and only
+        # the rate can tell them apart.
+        "reaches_without_feet": len(F.hand_before_foot(rows)),
         "notes": notes,
     }
 
@@ -404,7 +450,13 @@ def main():
         for n in result["notes"]:
             mins, sec = divmod(n["at_seconds"], 60)
             print(f"  {int(mins)}:{sec:04.1f}  [{n['kind']:9}] {n['note']}")
-        print(f"  written to {out.relative_to(HERE)}")
+        # A run given on the command line can be a relative path, and
+        # relative_to then raises rather than printing something useful.
+        try:
+            shown = out.relative_to(HERE)
+        except ValueError:
+            shown = out
+        print(f"  written to {shown}")
 
 
 if __name__ == "__main__":
