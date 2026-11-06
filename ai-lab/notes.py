@@ -204,6 +204,105 @@ def dynamic_moves(rows):
     return out
 
 
+def high_steps(rows, gaps):
+    """
+    Feet placed high enough to fold the knee right up.
+
+    Worth saying because it is the opposite of the mistake most new climbers
+    make, which is leaving the feet low and pulling the body up on the arms.
+    A high step is work the legs are doing, and a climber who sees where they
+    already did it knows what the move felt like.
+    """
+    out = []
+    for s in sorted(F.high_steps(rows), key=lambda s: s["deg"]):
+        if any(abs(s["t"] - n["at_seconds"]) < MIN_SPACING_S for n in out):
+            continue
+        if overlaps_gap(s["t"], s["t"], gaps):
+            continue
+        out.append({
+            "at_seconds": secs(s["t"]),
+            "kind": "technique",
+            "note": (
+                f"High step with the {s['side']} foot, knee folded to "
+                f"{s['deg']:.0f} degrees."
+            ),
+            "facts": {
+                "knee_deg": round(s["deg"], 1),
+                "side": s["side"],
+                "straight_is": 180,
+                "threshold_deg": C.HIGH_STEP_DEG,
+            },
+        })
+        if len(out) == MAX_PER_KIND:
+            break
+    return out
+
+
+def off_balance(rows, gaps):
+    """
+    Moments the body hung out to one side of the feet holding it up.
+
+    This is the measurement closest to real coaching: stand on your feet. Of
+    everything measured here it is also the one leaning hardest on the camera
+    being side on, so the note gives the number and the direction and does not
+    tell anybody what to do about it.
+    """
+    out = []
+    for s in sorted(F.off_balance(rows), key=lambda s: -s["amount"]):
+        if any(abs(s["t"] - n["at_seconds"]) < MIN_SPACING_S for n in out):
+            continue
+        if overlaps_gap(s["t"], s["t"], gaps):
+            continue
+        out.append({
+            "at_seconds": secs(s["t"]),
+            "kind": "technique",
+            "note": (
+                f"Weight hanging {s['amount']:.1f} torso lengths to the side of "
+                f"your feet here."
+            ),
+            "facts": {
+                "over_feet_torso": round(s["amount"], 2),
+                "threshold_torso": C.OFF_BALANCE,
+                "caveat": "assumes a roughly side on camera",
+            },
+        })
+        if len(out) == MAX_PER_KIND:
+            break
+    return out
+
+
+def footwork_rate(rows, hand_moves, foot_moves):
+    """
+    How often the feet moved compared to the hands, over the whole climb.
+
+    One note, not a moment: this is the shape of a climb rather than an
+    instant in it. Hands moving far more often than feet is the signature of
+    pulling up rather than standing up, and it is the single most common thing
+    worth telling a newer climber. Reported as a ratio with both counts, so
+    the number can be checked against the video rather than taken on trust.
+    """
+    if not foot_moves or not hand_moves:
+        return []
+    ratio = len(hand_moves) / len(foot_moves)
+    if ratio < C.HAND_FOOT_RATIO:
+        return []
+    return [{
+        "at_seconds": secs(rows[0]["t"]),
+        "kind": "technique",
+        "note": (
+            f"{len(hand_moves)} hand moves to {len(foot_moves)} foot moves "
+            f"over the climb, {ratio:.1f} to 1."
+        ),
+        "facts": {
+            "hand_moves": len(hand_moves),
+            "foot_moves": len(foot_moves),
+            "ratio": round(ratio, 2),
+            "threshold": C.HAND_FOOT_RATIO,
+            "caveat": "feet are tracked worse than hands, so foot moves run low",
+        },
+    }]
+
+
 def coverage_gaps(rows):
     """
     Stretches the analysis cannot speak about.
@@ -254,11 +353,16 @@ def build(pose_path):
         if rows[i]["t"] - rows[i - 1]["t"] > C.GAP_S
     ]
 
+    feet = F.find_foot_moves(rows)
+
     notes = (
         long_holds(hands, gaps)
         + big_reaches(hands)
         + bent_arms(rows)
         + dynamic_moves(rows)
+        + high_steps(rows, gaps)
+        + off_balance(rows, gaps)
+        + footwork_rate(rows, hands, feet)
         + coverage_gaps(rows)
     )
     notes.sort(key=lambda n: n["at_seconds"])
@@ -273,6 +377,8 @@ def build(pose_path):
         "video": data["video"],
         "duration_s": secs(rows[-1]["t"]),
         "usable_samples": len(rows),
+        "hand_moves": len(hands),
+        "foot_moves": len(feet),
         "notes": notes,
     }
 

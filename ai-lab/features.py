@@ -101,8 +101,26 @@ def series(frames, aspect):
             "rw": q("right_wrist"),
             "la": q("left_ankle"),
             "ra": q("right_ankle"),
+            "head": q("nose"),
             "l_elbow": angle(q("left_shoulder"), q("left_elbow"), q("left_wrist")),
             "r_elbow": angle(q("right_shoulder"), q("right_elbow"), q("right_wrist")),
+            # Knee angles. A high step is a folded knee, and folding one knee
+            # much further than the other is what a drop knee or a rockover
+            # looks like from the side.
+            "l_knee": angle(q("left_hip"), q("left_knee"), q("left_ankle")),
+            "r_knee": angle(q("right_hip"), q("right_knee"), q("right_ankle")),
+            # Where the weight is relative to where the feet are, sideways,
+            # in torso lengths. Zero means the hips are stacked over the feet
+            # and the legs are carrying the climber. A large number means the
+            # body has swung out to one side of its own base, which is the
+            # position arms get tired in.
+            #
+            # Sideways only: vertical distance between hips and feet is just
+            # how tall somebody is, and says nothing.
+            "over_feet": abs(
+                (hips[0] * 0.6 + shoulders[0] * 0.4)
+                - (q("left_ankle")[0] + q("right_ankle")[0]) / 2
+            ) / torso,
             "vis": min(p["left_hip"]["v"], p["right_hip"]["v"],
                        p["left_wrist"]["v"], p["right_wrist"]["v"]),
             # An elbow angle is only worth reading when the arm is actually
@@ -112,6 +130,18 @@ def series(frames, aspect):
             # limb that was never found.
             "arm_ok": (dist(q("left_shoulder"), q("left_elbow")) > C.MIN_UPPER_ARM * torso
                        and dist(q("right_shoulder"), q("right_elbow")) > C.MIN_UPPER_ARM * torso),
+            # Feet get their own confidence rather than riding on the frame's.
+            # They are the worst tracked part of a climbing video: low in
+            # frame, often behind a volume, and small. Mixing them into `vis`
+            # would throw away frames where only the hands matter, and
+            # trusting `vis` for them would report foot moves that are the
+            # tracker guessing at an occluded ankle.
+            "foot_vis": min(p["left_ankle"]["v"], p["right_ankle"]["v"]),
+            # The leg equivalent of arm_ok, and it matters more. Legs collapse
+            # in the tracker more often than arms do, because the climber's
+            # lower half is the part a volume or a bulge hides.
+            "leg_ok": (dist(q("left_hip"), q("left_knee")) > C.MIN_THIGH * torso
+                       and dist(q("right_hip"), q("right_knee")) > C.MIN_THIGH * torso),
         })
     return rows
 
@@ -127,7 +157,8 @@ def smooth(values, window=5):
     return out
 
 
-def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S):
+def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S,
+               max_reach=None):
     """
     When a hand left one hold and arrived at another.
 
@@ -140,6 +171,11 @@ def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S):
     Threshold in body units rather than pixels, so it means the same thing for
     a tall climber far from the camera and a short one close to it.
     """
+    # Hands and feet do not share a ceiling. Two and a half torso lengths is
+    # an impossible hand move; for a foot it is four or five steps' worth, so
+    # passing C.MAX_REACH to a foot lets every tracking jump through.
+    ceiling = C.MAX_REACH if max_reach is None else max_reach
+
     xs = smooth([r[key][0] for r in rows], window=C.SMOOTH_WINDOW)
     ys = smooth([r[key][1] for r in rows], window=C.SMOOTH_WINDOW)
 
@@ -171,7 +207,7 @@ def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S):
         # it would put the worst frame of the video at the top of every list
         # sorted by reach. The anchor still advances, because wherever the
         # hand is now is where the next move starts from.
-        if reach <= C.MAX_REACH:
+        if reach <= ceiling:
             moves.append({
                 "from_t": rows[anchor_i]["t"],
                 "to_t": rows[i]["t"],
@@ -185,6 +221,82 @@ def find_moves(rows, key, threshold=C.MOVE_THRESHOLD, settle_s=C.MOVE_SETTLE_S):
         anchor_i = j
         i = j + 1
     return moves
+
+
+def find_foot_moves(rows):
+    """
+    When a foot left one hold and arrived at another, both feet together.
+
+    Two things make this different from hands rather than a second call to
+    find_moves. Feet travel shorter distances, because a step between holds a
+    few inches apart is a real move and the same displacement by a hand is a
+    readjustment, so they need their own threshold. And feet are tracked
+    worse than anything else in a climbing video: low in frame, small, and
+    frequently behind the volume the climber is standing on. Frames where the
+    ankles are a guess are dropped here rather than in series(), so that a
+    badly seen foot does not cost the hands their frame as well.
+
+    An invented foot move is worse than a missed one. A climber watching their
+    own video knows whether they stepped, and a step that did not happen is
+    the error that makes somebody stop believing the rest of the output.
+    """
+    clear = [r for r in rows if r["foot_vis"] >= C.MIN_FOOT_CONFIDENCE]
+    if len(clear) < 8:
+        return []
+
+    moves = []
+    for foot, key in (("L", "la"), ("R", "ra")):
+        for m in find_moves(clear, key, C.FOOT_MOVE_THRESHOLD, C.FOOT_SETTLE_S,
+                            C.FOOT_MAX_REACH):
+            moves.append({**m, "limb": foot + "F"})
+    return sorted(moves, key=lambda m: m["to_t"])
+
+
+def find_limb_moves(rows):
+    """Every move by any of the four limbs, in the order they happened."""
+    moves = []
+    for hand, key in (("L", "lw"), ("R", "rw")):
+        for m in find_moves(rows, key, C.MOVE_THRESHOLD, C.MOVE_SETTLE_S):
+            moves.append({**m, "limb": hand + "H"})
+    moves += find_foot_moves(rows)
+    return sorted(moves, key=lambda m: m["to_t"])
+
+
+def high_steps(rows):
+    """
+    Moments a foot was placed high enough to fold the knee right up.
+
+    Reported per leg because which one matters: the same angle on the left and
+    on the right are different moves, and a climber reading this wants to know
+    which foot they put up there.
+    """
+    out = []
+    for r in rows:
+        if r["foot_vis"] < C.MIN_FOOT_CONFIDENCE or not r["leg_ok"]:
+            continue
+        for side, key in (("left", "l_knee"), ("right", "r_knee")):
+            deg = r[key]
+            if math.isnan(deg):
+                continue
+            # Between the two: folded enough to be a high step, not so folded
+            # that the leg has stopped being a leg.
+            if C.MIN_PLAUSIBLE_KNEE <= deg < C.HIGH_STEP_DEG:
+                out.append({"t": r["t"], "side": side, "deg": deg})
+    return out
+
+
+def off_balance(rows):
+    """
+    Moments the body hung out to one side of its own feet.
+
+    See OFF_BALANCE in config.py for what the number means and what it
+    assumes about the camera.
+    """
+    return [
+        {"t": r["t"], "amount": r["over_feet"]}
+        for r in rows
+        if r["foot_vis"] >= C.MIN_FOOT_CONFIDENCE and r["over_feet"] > C.OFF_BALANCE
+    ]
 
 
 def report(data, rows):

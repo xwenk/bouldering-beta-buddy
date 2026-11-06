@@ -82,6 +82,41 @@ KNOBS = [
                 "actually happening in the video.",
     },
     {
+        "key": "FOOT_MOVE_THRESHOLD", "lo": 0.1, "hi": 1.0, "step": 0.05,
+        "label": "What counts as a foot move",
+        "unit": "torso lengths",
+        "watch": "the LF and RF rows in the table",
+        "help": "Separate from the hand threshold because a step between two "
+                "holds a few inches apart is a real move, and the same "
+                "distance by a hand is a readjustment.",
+    },
+    {
+        "key": "MIN_FOOT_CONFIDENCE", "lo": 0.1, "hi": 0.9, "step": 0.05,
+        "label": "...and how sure the tracker must be about the ankles",
+        "unit": "0 to 1",
+        "watch": "whether foot rows appear at all",
+        "help": "Feet are the worst tracked part of a climbing video. An "
+                "invented step is worse than a missing one, so this sits "
+                "higher than the frame confidence.",
+    },
+    {
+        "key": "HIGH_STEP_DEG", "lo": 40, "hi": 120, "step": 5,
+        "label": "High step",
+        "unit": "degrees at the knee",
+        "watch": "the high steps count",
+        "help": "A foot placed high folds the knee right up. Standing on a "
+                "foothold at waist height is roughly 60 to 70 degrees.",
+    },
+    {
+        "key": "OFF_BALANCE", "lo": 0.3, "hi": 2.0, "step": 0.05,
+        "label": "Weight out to the side of the feet",
+        "unit": "torso lengths",
+        "watch": "the off balance count",
+        "help": "How far the body hangs sideways from the feet holding it up. "
+                "Assumes a roughly side on camera, like everything else here "
+                "that pretends to know where the wall is.",
+    },
+    {
         "key": "LONG_HOLD_S", "lo": 1.0, "hi": 12.0, "step": 0.5,
         "label": "Long pause before a move",
         "unit": "seconds",
@@ -134,12 +169,9 @@ def measure(run, values):
     rows = [r for r in rows_all if r["vis"] >= C.MIN_CONFIDENCE]
     total = len(data["frames"])
 
-    moves = []
-    if len(rows) > 8:
-        for hand, key in (("L", "lw"), ("R", "rw")):
-            for m in F.find_moves(rows, key, C.MOVE_THRESHOLD, C.MOVE_SETTLE_S):
-                moves.append({**m, "hand": hand})
-    moves.sort(key=lambda m: m["to_t"])
+    moves = F.find_limb_moves(rows) if len(rows) > 8 else []
+    hand_moves = [m for m in moves if m["limb"].endswith("H")]
+    foot_moves = [m for m in moves if m["limb"].endswith("F")]
 
     elbows = [min(r["l_elbow"], r["r_elbow"]) for r in rows if r["arm_ok"]]
     gaps = [
@@ -161,12 +193,16 @@ def measure(run, values):
         "moves": [
             {
                 "t": round(m["to_t"], 1),
-                "hand": m["hand"],
+                "limb": m["limb"],
                 "reach": m["reach"],
                 "held": m["held_s"],
                 "up": m["up"],
-                "big": m["reach"] >= C.BIG_REACH,
-                "long": m["held_s"] >= C.LONG_HOLD_S,
+                # BIG_REACH and LONG_HOLD_S were set looking at hands, and a
+                # foot does not reach or hang around in the same units. Until
+                # feet get thresholds of their own the flags stay off them
+                # rather than quietly reusing the wrong number.
+                "big": m["limb"].endswith("H") and m["reach"] >= C.BIG_REACH,
+                "long": m["limb"].endswith("H") and m["held_s"] >= C.LONG_HOLD_S,
             }
             for m in moves
         ],
@@ -174,9 +210,12 @@ def measure(run, values):
             "kept": len(rows),
             "total": total,
             "keep_pct": round(100 * len(rows) / total) if total else 0,
-            "move_count": len(moves),
-            "big_count": sum(1 for m in moves if m["reach"] >= C.BIG_REACH),
-            "long_count": sum(1 for m in moves if m["held_s"] >= C.LONG_HOLD_S),
+            "hand_count": len(hand_moves),
+            "foot_count": len(foot_moves),
+            "high_steps": len({round(s["t"], 1) for s in F.high_steps(rows)}),
+            "off_balance": len({round(s["t"], 1) for s in F.off_balance(rows)}),
+            "big_count": sum(1 for m in hand_moves if m["reach"] >= C.BIG_REACH),
+            "long_count": sum(1 for m in hand_moves if m["held_s"] >= C.LONG_HOLD_S),
             "bent_pct": round(100 * sum(1 for e in elbows if e < C.BENT_ARM_DEG) / len(elbows))
             if elbows else 0,
             "fast_count": fast,
@@ -313,8 +352,9 @@ TEMPLATE = r"""<!doctype html>
   td { padding: 7px 10px; border-bottom: 1px solid var(--line); }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: var(--panel); }
-  .hand { display: inline-block; width: 19px; text-align: center; border-radius: 4px;
+  .hand { display: inline-block; min-width: 26px; padding: 0 4px; text-align: center; border-radius: 4px;
           background: #2a3040; font-size: 11px; font-weight: 600; }
+  .hand.foot { background: #1f3340; }
   .tag { font-size: 10.5px; padding: 1px 6px; border-radius: 99px; margin-left: 6px; }
   .tag.big { background: #1d3a2b; color: var(--accent); }
   .tag.long { background: #3a3119; color: var(--warn); }
@@ -341,7 +381,7 @@ TEMPLATE = r"""<!doctype html>
     <video id="vid" src="/overlay.mp4" controls preload="metadata"></video>
     <div class="stats" id="stats"></div>
     <table>
-      <thead><tr><th>Time</th><th>Hand</th><th>Reach</th><th>Held before</th><th>Direction</th></tr></thead>
+      <thead><tr><th>Time</th><th>Limb</th><th>Reach</th><th>Held before</th><th>Direction</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="sub" style="margin-top:10px">Click a row to jump the video there.</div>
@@ -402,7 +442,10 @@ function draw(d) {
   const s = d.stats;
   document.getElementById('stats').innerHTML = [
     ['kept', `${s.keep_pct}%`, `${s.kept} of ${s.total} frames`],
-    ['hand moves', s.move_count, ''],
+    ['hand moves', s.hand_count, ''],
+    ['foot moves', s.foot_count, ''],
+    ['high steps', s.high_steps, 'frames'],
+    ['off balance', s.off_balance, 'frames'],
     ['long reaches', s.big_count, ''],
     ['long pauses', s.long_count, ''],
     ['arms bent', `${s.bent_pct}%`, 'of usable frames'],
@@ -416,7 +459,7 @@ function draw(d) {
   document.getElementById('rows').innerHTML = d.moves.map(m => `
     <tr data-t="${m.t}">
       <td>${m.t.toFixed(1)}s</td>
-      <td><span class="hand">${m.hand}</span></td>
+      <td><span class="hand ${m.limb[1] === 'F' ? 'foot' : ''}">${m.limb}</span></td>
       <td>${m.reach.toFixed(2)}${m.big ? '<span class="tag big">long</span>' : ''}</td>
       <td>${m.held.toFixed(1)}s${m.long ? '<span class="tag long">pause</span>' : ''}</td>
       <td>${m.up > 0.15 ? 'up' : m.up < -0.15 ? 'down' : 'across'}</td>
