@@ -12,6 +12,18 @@ climbing measurements, and a language model turns the measurements into
 coaching. The model never sees the footage, which is the design decision
 everything else here follows from.
 
+### Why it exists
+
+It started as coursework. CS185 at UC Santa Barbara set a theme rather than a
+brief: build an application around AI. I climb, so I went looking for
+something in climbing that an AI could genuinely help with rather than
+something that would merely demonstrate one, and the gap was obvious once I
+looked for it. Climbers film constantly and learn nothing from the footage.
+
+Three of us designed it for the course. When the quarter ended I kept going on
+my own, because the interesting half had not been built: the design assumed an
+analysis existed, and nobody had checked whether it could.
+
 ---
 
 ## What it does today
@@ -391,6 +403,27 @@ and OpenCV for the pose work. Claude Haiku 4.5 for the writing.
 Gym search is OpenStreetMap through the Overpass API rather than Google
 Places, because Places needs a billing account and a key that a mobile app
 cannot keep secret.
+
+---
+
+## Where it stands
+
+This is not a product. It has one user, no validation, and an analysis
+pipeline that runs on a laptop rather than on a server, so a video uploaded
+from the app is not analysed until somebody runs the Python by hand. The gap
+between that and something other people could use is larger than the gap
+already covered.
+
+What is true is smaller and worth saying anyway: **running it on my own
+climbing has already been mildly useful.** Not because the sentences are
+remarkable, but because some of the numbers underneath them describe things I
+could not see by watching the video back. That 17 of 42 hand moves on one
+climb had no foot placed in the three seconds before them is not something
+anybody notices while watching themselves climb, and it is the sort of thing
+that changes what you pay attention to on the next session.
+
+One honest user is not evidence that this works. It is the reason the next
+piece of work is validation rather than features.
 
 ---
 
