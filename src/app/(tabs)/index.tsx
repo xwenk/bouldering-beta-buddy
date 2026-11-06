@@ -17,7 +17,7 @@ import { Card, Row, Screen, SectionLabel, useColors } from '@/components/ui-kit'
 import { Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { FoundGym, searchByName, searchNearby } from '@/lib/gym-search';
-import { addAndFollow, listMyGyms, MyGym, unfollowGym } from '@/lib/gyms';
+import { addAndFollow, addGym, listMyGyms, MyGym, unfollowGym } from '@/lib/gyms';
 
 export default function GymsScreen() {
   const c = useColors();
@@ -35,8 +35,30 @@ export default function GymsScreen() {
   const [searching, setSearching] = useState(false);
 
   const [here, setHere] = useState<{ lat: number; lng: number } | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  // Which row is waiting on the network to open. Opening is the one action
+  // here that genuinely makes somebody wait, because it has to put the gym in
+  // the directory before it can navigate to it.
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  /**
+   * Hearts that have been tapped but not yet confirmed by the server, keyed by
+   * the row's OpenStreetMap id. True means following, false means not.
+   *
+   * This exists so the heart can flip under the finger instead of after a
+   * round trip. Claiming a gym is cheap and trivially undone, so making
+   * somebody watch a spinner for it reads as the app being slow rather than
+   * careful. If the write fails the entry is dropped and the heart snaps back
+   * to whatever the server actually thinks.
+   */
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+
+  const settle = (osmId: string) =>
+    setPending((p) => {
+      const { [osmId]: _gone, ...rest } = p;
+      return rest;
+    });
 
   const loadMine = useCallback(async () => {
     try {
@@ -111,9 +133,46 @@ export default function GymsScreen() {
     };
   }, [query, here]);
 
-  async function add(g: FoundGym) {
+  /**
+   * Open a gym without claiming it.
+   *
+   * Visiting somewhere once and climbing there every week are different
+   * things, and tapping a row should mean the first. The gym still has to
+   * enter the shared directory to have routes hung off it, so it is created
+   * if nobody has added it yet, but it does not join your list. addGym
+   * returns the existing row when there is one, so this does not duplicate.
+   */
+  async function open(g: FoundGym) {
     if (!user) return;
-    setBusyId(g.osmId);
+    const already = mineMatch(g);
+    if (already) {
+      router.push(`/gym/${already.id}`);
+      return;
+    }
+
+    setOpeningId(g.osmId);
+    setError('');
+    try {
+      const gym = await addGym({
+        name: g.name,
+        city: g.city,
+        address: g.address,
+        lat: g.lat,
+        lng: g.lng,
+        addedBy: user.id,
+      });
+      router.push(`/gym/${gym.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open that gym.');
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  /** Claim a gym as one of yours. Only the plus does this. */
+  async function follow(g: FoundGym) {
+    if (!user) return;
+    setPending((p) => ({ ...p, [g.osmId]: true }));
     setError('');
     try {
       await addAndFollow({
@@ -124,35 +183,71 @@ export default function GymsScreen() {
         lng: g.lng,
         userId: user.id,
       });
-      setQuery('');
-      setResults(null);
       await loadMine();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not add that gym.');
     } finally {
-      setBusyId(null);
+      settle(g.osmId);
     }
   }
 
-  async function remove(gymId: string) {
-    if (!user) return;
-    setBusyId(gymId);
+  /**
+   * Drop a gym off your list from a search or nearby row.
+   *
+   * Separate from remove() only because the busy spinner is keyed by whatever
+   * id the row knows itself by, and these rows know their OpenStreetMap id
+   * rather than the database one.
+   */
+  async function unfollowFound(g: FoundGym) {
+    const match = mineMatch(g);
+    if (!user || !match) return;
+    setPending((p) => ({ ...p, [g.osmId]: false }));
+    setError('');
     try {
-      await unfollowGym(gymId, user.id);
+      await unfollowGym(match.id, user.id);
       await loadMine();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not remove that gym.');
     } finally {
-      setBusyId(null);
+      settle(g.osmId);
     }
   }
 
-  const haveIt = (g: FoundGym) =>
-    mine.some(
+  /**
+   * Drop a gym from the My Gyms list. The row leaves immediately and comes
+   * back if the server refuses, which is the same bargain as the hearts
+   * below: instant, and corrected rather than delayed.
+   */
+  async function remove(gymId: string) {
+    if (!user) return;
+    const before = mine;
+    setMine((list) => list.filter((m) => m.id !== gymId));
+    setError('');
+    try {
+      await unfollowGym(gymId, user.id);
+      await loadMine();
+    } catch (e) {
+      setMine(before);
+      setError(e instanceof Error ? e.message : 'Could not remove that gym.');
+    }
+  }
+
+  /**
+   * The gym on your list that this search result refers to, if any.
+   *
+   * Returns the row rather than a boolean because opening one needs its
+   * database id, and a result off OpenStreetMap does not carry one. Matched
+   * the same way addGym decides two entries are the same place.
+   */
+  const mineMatch = (g: FoundGym) =>
+    mine.find(
       (m) =>
         m.name.trim().toLowerCase() === g.name.trim().toLowerCase() &&
         (m.lat == null || Math.abs(m.lat - g.lat) < 0.003)
     );
+
+  const isMine = (g: FoundGym) =>
+    g.osmId in pending ? pending[g.osmId] : !!mineMatch(g);
 
   const searchMode = query.trim().length >= 3;
 
@@ -205,9 +300,11 @@ export default function GymsScreen() {
               <FoundRow
                 key={g.osmId}
                 gym={g}
-                added={haveIt(g)}
-                busy={busyId === g.osmId}
-                onAdd={() => add(g)}
+                added={isMine(g)}
+                opening={openingId === g.osmId}
+                onOpen={() => open(g)}
+                onFollow={() => follow(g)}
+                onUnfollow={() => unfollowFound(g)}
               />
             ))
           )}
@@ -221,8 +318,8 @@ export default function GymsScreen() {
             ) : mine.length === 0 ? (
               <Card>
                 <Text style={{ color: c.textSecondary, fontSize: 14, lineHeight: 20 }}>
-                  Search for the gym you climb at, or pick one from below. It will sit here
-                  afterwards.
+                  Tap a gym below to look around it. Tap the plus beside one to keep it here,
+                  for the gym you actually climb at.
                 </Text>
               </Card>
             ) : (
@@ -245,12 +342,8 @@ export default function GymsScreen() {
                       </View>
                       {/* Removing is deliberately the smaller target of the two,
                           since opening a gym is what people came to do. */}
-                      <Pressable onPress={() => remove(g.id)} hitSlop={10} disabled={busyId === g.id}>
-                        {busyId === g.id ? (
-                          <ActivityIndicator color={c.accent} />
-                        ) : (
-                          <Ionicons name="heart" size={20} color={c.accent} />
-                        )}
+                      <Pressable onPress={() => remove(g.id)} hitSlop={12}>
+                        <Ionicons name="heart" size={20} color={c.accent} />
                       </Pressable>
                       <Ionicons name="chevron-forward" size={18} color={c.textFaint} />
                     </Row>
@@ -275,9 +368,11 @@ export default function GymsScreen() {
                   <FoundRow
                     key={g.osmId}
                     gym={g}
-                    added={haveIt(g)}
-                    busy={busyId === g.osmId}
-                    onAdd={() => add(g)}
+                    added={isMine(g)}
+                    opening={openingId === g.osmId}
+                    onOpen={() => open(g)}
+                    onFollow={() => follow(g)}
+                    onUnfollow={() => unfollowFound(g)}
                   />
                 ))
             ) : (
@@ -294,29 +389,42 @@ export default function GymsScreen() {
   );
 }
 
+/**
+ * A gym from search or from looking around.
+ *
+ * Two separate targets on purpose. The row opens the gym, which is what
+ * somebody passing through wants and costs them nothing. The plus is the only
+ * thing that puts it on their list, because being somewhere once and climbing
+ * there every week are different claims and the app should not make the
+ * second one on their behalf.
+ */
 function FoundRow({
   gym,
   added,
-  busy,
-  onAdd,
+  opening,
+  onOpen,
+  onFollow,
+  onUnfollow,
 }: {
   gym: FoundGym;
   added: boolean;
-  busy: boolean;
-  onAdd: () => void;
+  opening: boolean;
+  onOpen: () => void;
+  onFollow: () => void;
+  onUnfollow: () => void;
 }) {
   const c = useColors();
   return (
     <Pressable
-      onPress={added ? undefined : onAdd}
-      disabled={added || busy}
+      onPress={onOpen}
+      disabled={opening}
       style={({ pressed }) => ({
         backgroundColor: c.surface,
         borderColor: c.border,
         borderWidth: 1,
         borderRadius: Radius.md,
         padding: Spacing.three,
-        opacity: pressed || busy ? 0.6 : 1,
+        opacity: pressed || opening ? 0.6 : 1,
       })}>
       <Row>
         <Ionicons
@@ -336,12 +444,25 @@ function FoundRow({
               .join(' · ') || 'Climbing'}
           </Text>
         </View>
-        {busy ? (
-          <ActivityIndicator color={c.accent} />
-        ) : added ? (
-          <Ionicons name="checkmark-circle" size={22} color={c.sent} />
+        {/* Both states get their own hit area. Without one the icon is just a
+            picture and the tap lands on the row behind it, which is why the
+            heart used to open the gym instead of letting go of it.
+            No spinner here: the icon has already changed by the time the
+            request goes out. */}
+        <Pressable onPress={added ? onUnfollow : onFollow} hitSlop={12}>
+          <Ionicons
+            name={added ? 'heart' : 'add-circle-outline'}
+            size={added ? 22 : 24}
+            color={added ? c.accent : c.textFaint}
+          />
+        </Pressable>
+
+        {/* Waiting belongs here, next to the arrow that says this row leads
+            somewhere, rather than on the heart that had nothing to do with it. */}
+        {opening ? (
+          <ActivityIndicator size="small" color={c.accent} />
         ) : (
-          <Ionicons name="add-circle-outline" size={22} color={c.textFaint} />
+          <Ionicons name="chevron-forward" size={18} color={c.textFaint} />
         )}
       </Row>
     </Pressable>
