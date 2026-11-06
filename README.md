@@ -3,7 +3,7 @@
 Climbers film their attempts constantly and almost never learn anything from
 the footage, because watching yourself climb mostly confirms what you already
 felt. This turns a climbing video into feedback attached to the second it
-applies to: at 0:20 you paused for eleven seconds and then reached with your
+applies to. At 0:20 you paused for eleven seconds and then reached with your
 arms already bent, when setting a foot first would have let you keep moving.
 
 It is a React Native app with a Python analysis pipeline behind it. Pose
@@ -14,14 +14,14 @@ everything else here follows from.
 
 ### Why it exists
 
-CS185 at UC Santa Barbara set a theme rather than a brief: build an
-application around AI. I climb, so I went looking for something in climbing
+CS185 at UC Santa Barbara set a theme rather than a brief, which was to build
+an application around AI. I climb, so I went looking for something in climbing
 that an AI could genuinely help with, rather than something that would merely
 demonstrate one. The gap was obvious once I looked for it.
 
 Three of us designed it for the course. When the quarter ended I kept going
-alone, because the interesting half had not been built: the design assumed an
-analysis existed, and nobody had checked whether it could.
+alone, because the interesting half had not been built. The design assumed an
+analysis existed and nobody had checked whether it could.
 
 ---
 
@@ -61,7 +61,7 @@ prose whether they are being praised or corrected.
 Seven clips have been through the measurement pipeline, six of them produce
 notes, and two have been through the language step and are in the app.
 
-Around the analysis, the app does what a climbing logbook does: find gyms
+Around the analysis, the app does what a climbing logbook does. Find gyms
 nearby, record what you climbed, upload video of it, review routes. Three
 tabs, Gyms, Sessions and You.
 
@@ -116,8 +116,8 @@ Hand moves made without a foot move in the 3 seconds before: 7 of 18.
                to 82deg; moved RF, RF | next limb moved 0.2s later
 ```
 
-It cannot hallucinate a move: there is no footage to hallucinate from and
-nothing in the input it was not handed. Timestamps stay exact, because 30.7
+It cannot hallucinate a move, because there is no footage to hallucinate from
+and nothing in the input it was not handed. Timestamps stay exact, because 30.7
 came out of a frame number. A whole climb costs about a thousandth of a
 dollar. And a wrong sentence is wrong in one of two places, the measurement or
 the prompt, which makes it something to debug rather than something to
@@ -127,28 +127,28 @@ The caveats matter as much as the numbers. Wall angle is never measured, and
 bent arms are correct on an overhang, so a model told only "elbow at 40
 degrees" gives advice that is wrong half the time. Every uncertainty the
 measurement layer knows about is passed through, and the model is instructed
-not to give advice that depends on what a caveat says is unknown. It obeys:
-three notes on the test clip say the bend cannot be judged without knowing the
-wall, rather than guessing.
+not to give advice that depends on what a caveat says is unknown. It obeys,
+and three notes on the test clip say the bend cannot be judged without knowing
+the wall rather than guessing at it.
 
 ### Everything is in torso lengths
 
 No measurement is in pixels. A climber filmed from further away has smaller
 pixels and the same body, and a ratio to their own shoulder to hip distance
 comes out the same either way. It is also the only reason two climbers'
-measurements can be compared at all, which is the premise the whole app rests
-on: beta from somebody built like you.
+measurements can be compared at all, and that comparison is the premise the
+whole app rests on. Beta from somebody built like you.
 
 ---
 
 ## How it got here
 
-### Three people designed it, one person built it
+### The design phase
 
 The course work produced the problem statement, the research, the storyboards,
 the wireframes and an interactive Figma prototype, by **Owen Kang, Jiemi Niu
 and Yulin Yu**. None of it was code. Needfinding, testing, low fidelity and
-medium fidelity, in that order: interviews with boulderers, then mapping what
+medium fidelity, in that order. Interviews with boulderers, then mapping what
 they felt at each point of a session, then paper, then the clickable version.
 
 ![The design process, from interviews to the interactive prototype](docs/design/poster.png)
@@ -167,7 +167,7 @@ Three storyboards, one per device, drawn before anything was chosen.
 
 ![Phone storyboard](docs/design/storyboard-phone.jpeg)
 
-The glasses version is the most appealing one on paper: holds labelled in your
+The glasses version is the most appealing one on paper. Holds labelled in your
 field of view, the next move highlighted on the wall, help on request mid
 climb. It also gives a first person view, which is the wrong view, because you
 cannot see your own body and the body is the entire signal here.
@@ -191,7 +191,7 @@ decided the shape of everything after it.
 
 ![Full wireframe flow](docs/design/wireframes-full.jpeg)
 
-The wireframes are where beta comparison became concrete: your video and
+The wireframes are where beta comparison became concrete. Your video and
 another climber's on the same route, side by side, each with its own analysis,
 and a comparison between them.
 
@@ -200,8 +200,8 @@ and a comparison between them.
 ### Then the building started
 
 **The logbook first.** Gyms, routes, sends, reviews, video upload. This is the
-part that looks like every other climbing app, and it came first on purpose:
-the analysis is only interesting if there is somewhere for a video to live and
+part that looks like every other climbing app, and it came first on purpose.
+The analysis is only interesting if there is somewhere for a video to live and
 something for a note to attach to.
 
 **Then the lab.** `ai-lab/` is a separate Python project with its own virtual
@@ -210,9 +210,9 @@ anything useful about climbing?" had to be answered before any of it was worth
 wiring into a product. The answer took several rewrites.
 
 Most of the lab is tooling for looking at what the measurements did. A page
-like this is generated per video: the confidence the tracker reported over
-time, the measurements plotted against each other, and every detected move in
-a table that seeks the footage when a row is clicked.
+like this is generated per video, showing the confidence the tracker reported
+over time, the measurements plotted against each other, and every detected
+move in a table that seeks the footage when a row is clicked.
 
 ![The review page the lab generates for each video](docs/design/lab-review.png)
 
@@ -247,7 +247,7 @@ Holding it against the working app is the clearest statement of what got built.
 
 The two that matter are beta comparison and insights across climbs, because
 those are the product. Everything in this repository is the layer underneath
-them: you cannot compare two climbers' beta until you can measure one
+them. You cannot compare two climbers' beta until you can measure one
 climber's movement, and measuring one climber's movement is the part that
 turned out to be hard.
 
@@ -274,8 +274,8 @@ middle of a function.
 ### What is not measured
 
 **Wall angle.** Nothing in the video says whether this is a slab or an
-overhang. Estimating it from body geometry was tried and does not work: the
-spread of the estimate is wider than the estimate itself on every clip,
+overhang. Estimating it from body geometry was tried and does not work. The
+spread of the estimate came out wider than the estimate itself on every clip,
 because a climber's sideways movement dwarfs the wall's lean. The fix is a tap
 when a route is added, not computer vision.
 
@@ -320,7 +320,7 @@ runs on a laptop rather than a server, so a video uploaded from the app is not
 analysed until somebody runs the Python by hand. The distance between that and
 something other people could use is longer than the distance already covered.
 
-What is true is smaller, and worth saying anyway: **running it on my own
+What is true is smaller and worth saying anyway. **Running it on my own
 climbing has already been mildly useful, and the useful parts are not the ones
 I expected.**
 
@@ -331,9 +331,9 @@ on one climb had no foot placed in the three seconds before them is not
 something anybody notices watching themselves climb.
 
 **Where it stops working.** Anything steep. This is the unmeasured wall angle
-seen from the other side, and it is worse than it first looks: the problem is
-not only that bent arms cannot be judged, it is that most of the advice
-quietly assumes a wall close to vertical.
+seen from the other side, and it is worse than it first looks. The problem is
+not only that bent arms cannot be judged. Most of the advice quietly assumes a
+wall close to vertical.
 
 **What is missing.**
 
@@ -374,15 +374,17 @@ validation being the next piece of work rather than more features.
 Real plans with real reasoning, deferred rather than forgotten.
 
 **Expanding gym by gym.** Visit a gym, add its walls and routes properly, get
-its regulars using it, move to the next. Climbing is local: ten users at your
-gym beat ten thousand spread across a country, because the point is comparing
-beta on a route you can walk up to. The plan needs time rather than code.
+its regulars using it, move to the next. Climbing is local, and ten users at
+your gym beat ten thousand spread across a country, because the point is
+comparing beta on a route you can walk up to. The plan needs time rather
+than code.
 
 **Brand partnerships.** Approaching Scarpa, La Sportiva and Mad Rock. Shoe
 brands have the audience this needs and an obvious reason to care about
-movement analysis, and they are the natural partner for the sensor idea above.
+movement analysis, and they are the natural partner for the sensor idea
+above.
 
-**Copying the MoonBoard model.** A MoonBoard is a standard wall: the same
+**Copying the MoonBoard model.** A MoonBoard is a standard wall, the same
 holds in the same positions everywhere in the world, so every climber on earth
 is attempting an identical problem and their attempts compare directly. It
 solves the hardest problem here for free, because you no longer need to detect
@@ -422,8 +424,9 @@ cp ~/climbing-video.MOV videos/
 ```
 
 Writing the sentences and putting them in the app needs two keys in `.env`
-that the app never sees: a Supabase secret key, because `video_analysis` has a
-select policy and deliberately no insert policy, and an Anthropic key.
+that the app never sees. One is an Anthropic key. The other is a Supabase
+secret key, needed because `video_analysis` has a select policy and
+deliberately no insert policy at all.
 
 ```bash
 .venv/bin/python write_notes.py IMG_5030 --dry-run   # print the prompt, call nothing
