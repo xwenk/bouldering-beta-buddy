@@ -28,6 +28,7 @@ import string
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = pathlib.Path(__file__).parent
@@ -123,8 +124,8 @@ def object_key(user_id, ext):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video", help="로컬 영상 파일")
-    ap.add_argument("--gym", help="짐 이름. 생략하면 첫 번째 짐")
-    ap.add_argument("--route", default="Test route", help="루트 이름")
+    ap.add_argument("--gym", help="짐 이름. 생략하면 목록을 보여주고 멈춥니다")
+    ap.add_argument("--route", help="루트 이름. 생략하면 영상 파일 이름")
     args = ap.parse_args()
 
     path = pathlib.Path(args.video)
@@ -144,23 +145,36 @@ def main():
         sys.exit("profiles 가 비어 있습니다. 앱에서 한 번 가입해야 합니다.")
     me = profiles[0]
 
-    gyms = rest("gyms?select=id,name" + (f"&name=eq.{urllib.parse.quote(args.gym)}"
-                                         if args.gym else "") + "&limit=1")
+    # Which gym is not a detail the script gets to guess. Picking the first
+    # one silently put a video under the wrong gym once already, and the only
+    # sign of it was the gym name printed in a line nobody reads twice.
+    if not args.gym:
+        print("어느 짐인지 --gym 으로 알려주세요. 있는 짐:\n")
+        for g in rest("gyms?select=name&order=name"):
+            print(f'  --gym "{g["name"]}"')
+        return 1
+
+    gyms = rest(f"gyms?select=id,name&name=eq.{urllib.parse.quote(args.gym)}")
     if not gyms:
-        sys.exit("짐을 찾지 못했습니다.")
+        print(f'"{args.gym}" 라는 짐이 없습니다. 있는 짐:\n')
+        for g in rest("gyms?select=name&order=name"):
+            print(f'  {g["name"]}')
+        return 1
     gym = gyms[0]
 
     print(f"사용자  {me['display_name']}")
     print(f"짐      {gym['name']}")
 
-    routes = rest(f"routes?select=id&gym_id=eq.{gym['id']}&limit=1")
+    name = args.route or path.stem
+    routes = rest(f"routes?select=id&gym_id=eq.{gym['id']}"
+                  f"&name=eq.{urllib.parse.quote(name)}")
     if routes:
         route = routes[0]
-        print(f"루트    기존 것 사용 {route['id']}")
+        print(f"루트    같은 이름의 기존 루트 사용 {route['id']}")
     else:
         route = rest("routes", method="POST", prefer="return=representation",
                      body={"gym_id": gym["id"], "created_by": me["id"],
-                           "name": args.route})[0]
+                           "name": args.route or path.stem})[0]
         print(f"루트    새로 만듦 {route['id']}")
 
     # sends was called attempts until 0004 and still carries user_id from
@@ -208,5 +222,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import urllib.parse
     sys.exit(main())
