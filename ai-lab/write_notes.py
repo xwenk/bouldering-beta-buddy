@@ -37,6 +37,9 @@ import sys
 import urllib.error
 import urllib.request
 
+import config as C
+import features as F
+
 HERE = pathlib.Path(__file__).parent
 ENV = HERE.parent / ".env"
 
@@ -44,27 +47,42 @@ MODEL = "claude-haiku-4-5-20251001"
 API = "https://api.anthropic.com/v1/messages"
 
 SYSTEM = """\
-You are a bouldering coach reviewing one climb. Everything you know about it \
-was measured from the video by a pose estimation pipeline; you have not seen \
-the footage.
+You are a bouldering coach reviewing one climb with the climber. Everything \
+you know about it was measured from the video by a pose estimation pipeline; \
+you have not seen the footage.
 
-Write one sentence per measurement, in the order given.
+You are given the full sequence of limb movements, then the moments worth \
+talking about. Write one coaching note per moment, plus one overall note \
+about the climb as a whole.
+
+Use the sequence. A moment is part of a climb, not an isolated fact: a long \
+reach followed by a pause and then a foot move is one piece of climbing, and \
+saying so is the difference between coaching and captioning. Refer to what \
+came before or after when it explains the moment.
 
 Rules:
 
 - Never mention anything that was not measured. Hold colours, route grade, \
 wall angle, how hard the climb felt and whether it was sent are all unknown.
-- Say what was measured and what to try, in the same sentence. A sentence \
-that only restates the number is the template this is replacing.
+- Say what happened and what to try, in the same sentence. A sentence that \
+only restates the number is the template this is replacing.
 - Where a measurement carries a caveat, do not give advice that depends on \
 the thing the caveat says is unknown.
-- No praise, no filler, no exclamation marks. A coach at the wall is brief.
+- No praise for its own sake and no filler. Say a thing was done well only \
+when the measurements show it, and say which measurement.
 - Plain language. "Your hips were out to the side of your feet", not \
 "centre of mass lateral displacement".
-- Second person. Under 25 words each.
+- Second person, under 30 words each.
+- A moment with several measurements gets one sentence covering them, not one \
+per number.
 
-Return JSON only: {"notes": [{"at": <seconds>, "text": "<sentence>"}]}, one \
-entry per measurement, same order, same timestamps."""
+The overall note goes at 0 seconds and may run to two sentences. It should \
+say what the sequence as a whole shows, and name the one thing most worth \
+working on.
+
+Return JSON only:
+{"overall": "<sentence>", "notes": [{"at": <seconds>, "text": "<sentence>"}]}
+with one notes entry per moment given, same timestamps."""
 
 
 def env():
@@ -86,8 +104,6 @@ def describe(note):
     reading the measurement and not paraphrasing someone else's paraphrase.
     """
     f = note["facts"]
-    at = note["at_seconds"]
-    k = note["kind"]
     n = note["note"]
 
     if "reach_torso" in f:
@@ -121,16 +137,64 @@ def describe(note):
 
     if f.get("caveat"):
         line += f"  [caveat: {f['caveat']}]"
-    return f"{at:5.1f}s  {line}"
+    return line
 
 
-def build_prompt(built):
-    lines = [describe(n) for n in built["notes"]]
+def moments(notes, window=0.6):
+    """
+    Group notes that describe the same instant.
+
+    Four measurements inside half a second are one piece of climbing: a reach,
+    the speed it was made at, the pause after it and the foot that came up to
+    settle it. Sent separately they come back as four unrelated sentences, two
+    of them stamped at the same second, which is what made the first version
+    read like a caption track instead of a coach.
+    """
+    out = []
+    for n in sorted(notes, key=lambda n: n["at_seconds"]):
+        if out and n["at_seconds"] - out[-1][0] <= window:
+            out[-1][1].append(n)
+        else:
+            out.append([n["at_seconds"], [n]])
+    return out
+
+
+def timeline(run_dir):
+    """
+    Every limb move in order, as context rather than as something to comment on.
+
+    Without this the model sees the handful of moments worth mentioning and
+    nothing in between, so it cannot tell a steady sequence from a climber
+    stalling, and cannot say where in the climb a moment sits.
+    """
+    data, frames = F.load(run_dir / "pose.json")
+    rows = [r for r in F.series(frames, data["width"] / data["height"])
+            if r["vis"] >= C.MIN_CONFIDENCE]
+    if len(rows) <= 8:
+        return ""
+    parts = [f"{m['to_t']:.0f}s {m['limb']}" for m in F.find_limb_moves(rows)]
+    return "  ".join(parts)
+
+
+def build_prompt(built, run_dir):
+    blocks = []
+    for at, group in moments(built["notes"]):
+        lines = [describe(n) for n in group]
+        if len(lines) == 1:
+            blocks.append(f"{at:6.1f}s  {lines[0]}")
+        else:
+            blocks.append(f"{at:6.1f}s  " + f"\n{'':9}".join(lines))
+
+    seq = timeline(run_dir)
     return (
         f"Climb: {built['duration_s']} seconds, "
         f"{built['hand_moves']} hand moves, {built['foot_moves']} foot moves.\n"
         f"Frames the tracker could use: {built['usable_samples']}.\n\n"
-        "Measurements:\n" + "\n".join(lines)
+        # LH and RH are hands, LF and RF are feet. Spelling that out costs
+        # five words and stops the model guessing at the abbreviations.
+        "Full sequence of limb moves (LH/RH hands, LF/RF feet), for context:\n"
+        f"{seq}\n\n"
+        "Moments to comment on:\n" + "\n".join(blocks)
     )
 
 
@@ -155,7 +219,7 @@ def ask(key, prompt):
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
     try:
-        return json.loads(text)["notes"], out["usage"]
+        return json.loads(text), out["usage"]
     except Exception:
         sys.exit(f"\n모델이 JSON 이 아닌 것을 반환했습니다:\n{text[:600]}\n")
 
@@ -176,7 +240,7 @@ def main():
     if not built["notes"]:
         sys.exit("노트가 0개입니다.")
 
-    prompt = build_prompt(built)
+    prompt = build_prompt(built, path.parent)
 
     if args.dry_run:
         print("=" * 72)
@@ -200,33 +264,60 @@ def main():
         print("프롬프트만 보려면 --dry-run 을 붙이세요.")
         return 1
 
-    written, usage = ask(key, prompt)
-    if len(written) != len(built["notes"]):
-        print(f"경고: {len(built['notes'])}개를 보냈는데 {len(written)}개가 왔습니다.\n")
+    result, usage = ask(key, prompt)
+    written = result.get("notes", [])
+    groups = moments(built["notes"])
+    if len(written) != len(groups):
+        print(f"경고: 순간 {len(groups)}개를 보냈는데 {len(written)}개가 왔습니다.\n")
 
-    # Match on timestamp rather than position. The order should hold, but a
-    # note silently attached to the wrong moment is the one failure that would
-    # not look like a failure.
+    # Matched on timestamp, not position. The order should hold, but a note
+    # silently attached to the wrong moment is the one failure that would not
+    # look like a failure.
     by_at = {round(float(w["at"]), 1): w["text"] for w in written}
-    missing = 0
-    for n in built["notes"]:
-        text = by_at.get(round(n["at_seconds"], 1))
-        if text is None:
-            missing += 1
-            continue
-        n["template"] = n["note"]      # keep what it replaced, for comparison
-        n["note"] = text
-        n["model"] = f"{n['model'].split('+')[0]}+{MODEL}"
 
+    model = f"{built['notes'][0]['model'].split('+')[0]}+{MODEL}"
+    out = []
+    if result.get("overall"):
+        out.append({
+            "at_seconds": 0.0,
+            "kind": "summary",
+            "note": result["overall"],
+            "facts": {"hand_moves": built["hand_moves"],
+                      "foot_moves": built["foot_moves"],
+                      "duration_s": built["duration_s"]},
+            "model": model,
+        })
+
+    kept = 0
+    for at, group in groups:
+        text = by_at.get(round(at, 1))
+        if text is None:
+            # No sentence came back for this moment, so the templates stay.
+            # Dropping it would quietly lose a measured moment.
+            out.extend(group)
+            continue
+        kept += 1
+        out.append({
+            "at_seconds": at,
+            # A moment can mix kinds; the first one is what the screen colours
+            # it by and the sentence covers the rest.
+            "kind": group[0]["kind"],
+            "note": text,
+            "templates": [g["note"] for g in group],
+            "facts": {k: v for g in group for k, v in g["facts"].items()},
+            "model": model,
+        })
+
+    built["notes"] = out
     path.write_text(json.dumps(built, indent=2))
 
-    print(f"{args.run} — {len(written)}개 작성"
-          + (f", {missing}개는 시각이 안 맞아 템플릿 유지" if missing else ""))
+    print(f"{args.run} — 측정 {sum(len(g) for _, g in groups)}개 → 순간 {len(groups)}개 "
+          f"→ 코칭 노트 {kept}개 + 총평 {1 if result.get('overall') else 0}개")
     print(f"입력 {usage['input_tokens']} 토큰, 출력 {usage['output_tokens']} 토큰\n")
     for n in built["notes"]:
         print(f"  {n['at_seconds']:5.1f}s  {n['note']}")
-        if n.get("template"):
-            print(f"          (전) {n['template']}")
+        for t in n.get("templates", []):
+            print(f"          (전) {t}")
     print(f"\n{path.relative_to(HERE)} 에 저장했습니다.")
 
     if args.push:
