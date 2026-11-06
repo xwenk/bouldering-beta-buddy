@@ -415,12 +415,51 @@ between that and something other people could use is larger than the gap
 already covered.
 
 What is true is smaller and worth saying anyway: **running it on my own
-climbing has already been mildly useful.** Not because the sentences are
-remarkable, but because some of the numbers underneath them describe things I
-could not see by watching the video back. That 17 of 42 hand moves on one
-climb had no foot placed in the three seconds before them is not something
-anybody notices while watching themselves climb, and it is the sort of thing
-that changes what you pay attention to on the next session.
+climbing has already been mildly useful, and the parts that are useful are
+not the parts I expected.**
+
+**What works.** Where the weight sits, and which limb should move first. Those
+two are simple, they are measured rather than guessed, and the suggestions
+that come out of them are ones I can actually act on. That 17 of 42 hand moves
+on one climb had no foot placed in the three seconds before them is not
+something anybody notices while watching themselves climb.
+
+**Where it stops working.** On anything steep. The measurements assume a
+position that an overhang invalidates, and the advice that follows from them
+stops applying. This is the same hole as the unmeasured wall angle, seen from
+the other side: it is not only that bent arms cannot be judged, it is that
+most of the advice quietly assumes a wall that is close to vertical.
+
+**What is missing, in the order I noticed it.**
+
+*Toe and heel are the same thing to this.* A foot move is a foot move. In
+climbing they are different moves with different purposes, and feedback about
+footwork that cannot tell a heel hook from a toe hook is feedback about half
+of footwork. The ankle keypoint is tracked and the toe keypoint is tracked;
+what is missing is knowing which one is loaded, and a camera cannot see load.
+
+*There is no power meter, so dynamic and static cannot be compared.* The
+analysis can say a move was fast. It cannot say whether fast was the right
+choice, because the thing that decides that is how much it cost to do it that
+way, and nothing here measures effort.
+
+*And without that, no training.* The obvious next thing is a training routine
+built from what the measurements say a climber is weak at. That needs numbers
+good enough to build a plan on, and these are not yet those numbers.
+
+**What it would take, and why I stopped short of it.** Every one of those gaps
+is a sensor rather than an algorithm. Pressure sensors in the toe and heel of
+a climbing shoe, which is why the idea of approaching shoe brands came up at
+all. Grip sensors on the hands. Something like Meta's glasses for the first
+person view the storyboard imagined.
+
+Each of them would work. Together they describe a product that requires a
+climber to own and wear four pieces of hardware before they get a sentence
+back, and the thing that made the phone the right answer in the first place
+was that everybody already has one. The technical problems here turned out to
+be the easy half. Whether anybody would buy the hardware, and what it would
+cost to make and sell, are questions I do not have answers to and would need
+before building any of it.
 
 One honest user is not evidence that this works. It is the reason the next
 piece of work is validation rather than features.
