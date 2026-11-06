@@ -85,6 +85,29 @@ MOVE_SETTLE_S = 0.4
 # jitter the width of a wrist looks exactly like a small reach.
 SMOOTH_WINDOW = 7
 
+# The same two numbers for feet, which need their own.
+#
+# A foot move is shorter than a hand move: feet step between holds a few
+# inches apart and get placed, not thrown. Reusing MOVE_THRESHOLD finds almost
+# no foot moves at all. They also settle faster, because a placed foot stops
+# dead while a hand is still adjusting on the hold.
+FOOT_MOVE_THRESHOLD = 0.35
+FOOT_SETTLE_S = 0.3
+
+# ...and the ceiling, which cannot be MAX_REACH either. 2.5 torso lengths is
+# an impossible hand move but four or five steps' worth of foot, so reusing it
+# lets every tracking jump through as a step. Seen as a 1.91 foot move sitting
+# exactly on the edge of a tracking gap.
+FOOT_MAX_REACH = 1.2
+
+# How sure the tracker has to be about both ankles before a foot move counts.
+#
+# Higher than MIN_CONFIDENCE on purpose. Feet are the worst tracked part of a
+# climbing video, and a wrong foot move is worse than a missing one: it
+# invents a step that a climber watching the video knows did not happen, and
+# that is the kind of error that makes somebody stop trusting the whole thing.
+MIN_FOOT_CONFIDENCE = 0.5
+
 
 # ---------------------------------------------------------------------------
 # What counts as worth mentioning
@@ -108,3 +131,74 @@ DYNAMIC_SPEED = 1.5
 # A hand travelling further than this in one go is a big reach, which is the
 # kind of move where a climber's height actually changes the answer.
 BIG_REACH = 1.2
+
+# ...and further than this is not a reach at all.
+#
+# A torso is roughly 0.3 of a person, so 2.5 torso lengths is most of a body
+# height moved by one hand in one go. Nobody does that. Anything above it is
+# the tracker finding the wrist somewhere else, and without this bound it
+# comes out as the biggest reach of the climb and sorts to the top of every
+# list. Seen as "long reach down, 5.8 torso lengths".
+MAX_REACH = 2.5
+
+# Below this a knee is folded enough to call it a high step.
+#
+# Standing on a foot at waist height folds the knee past 90 degrees. Normal
+# climbing sits well above that, so this picks out the moves that took effort
+# to set up rather than every bent leg.
+HIGH_STEP_DEG = 75
+
+# Above this the body has swung out from over its own feet, sideways, in
+# torso lengths.
+#
+# This is the one measurement here that maps onto the most repeated piece of
+# climbing advice there is: stand on your feet. When the hips are stacked over
+# the feet the legs carry the weight; when they swing out to one side the arms
+# take it. The number is a proxy and assumes a roughly side on camera, like
+# everything else that pretends to know where the wall is.
+OFF_BALANCE = 0.8
+
+# Hand moves per foot move, above which the climb gets called out as arm led.
+#
+# Two hands to one foot is roughly normal: feet often stay put through a hand
+# sequence. Much past that and the climber is pulling themselves up rather
+# than standing up, which is the most common thing worth telling somebody
+# newer. Feet track worse than hands, so the measured ratio always runs a
+# little high; this is set with that in mind.
+HAND_FOOT_RATIO = 2.5
+
+# How long before a hand move a foot move still counts as having set it up.
+#
+# "Move your feet before you reach" is the most repeated piece of advice a
+# newer climber gets, and this is the window that decides whether they did.
+# Too short and a deliberate, well prepared sequence reads as sloppy; too long
+# and a foot placed at the start of the climb excuses every reach after it.
+FOOT_LEAD_S = 3.0
+
+# How far either side of a moment to look when judging it.
+#
+# A measurement at an instant can be described but not judged: whether a move
+# was a good idea is a question about what it cost, and the cost arrives
+# afterwards. Two seconds covers a reach and the recovery from it without
+# swallowing the next move whole.
+CONTEXT_S = 2.0
+
+# Below this an elbow angle is not a climber pulling hard.
+#
+# MIN_UPPER_ARM already drops frames where the arm collapsed to nothing, but
+# tracking can also put the wrist near the shoulder while the upper arm still
+# measures a plausible length, and that reads as 10 to 20 degrees. A fully
+# folded arm with a hand on a hold is about 30 to 40 degrees; below that is
+# anatomy nobody has.
+MIN_PLAUSIBLE_ELBOW = 30
+
+# The same two guards for legs, which turned out to need them more.
+#
+# A thigh shorter than this fraction of a torso means hip and knee have
+# collapsed onto each other and the angle between them is noise. And a knee
+# folded past MIN_PLAUSIBLE_KNEE is not a high step: a heel touching the back
+# of the thigh is about 35 degrees and a climber standing on a foothold is
+# nowhere near that. Without these the first run reported high steps at 8, 5
+# and 2 degrees, which is the leg vanishing, not the leg working.
+MIN_THIGH = 0.25
+MIN_PLAUSIBLE_KNEE = 35
