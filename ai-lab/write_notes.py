@@ -64,7 +64,17 @@ came before or after when it explains the moment.
 Rules:
 
 - Never mention anything that was not measured. Hold colours, route grade, \
-wall angle, how hard the climb felt and whether it was sent are all unknown.
+how hard the climb felt and whether it was sent are all unknown.
+- The wall is never located. Not its angle, not where it is. Never say \
+"closer to the wall", "square to the wall" or anything else measured against \
+it. Hips are measured against the midpoint between the feet, and that is the \
+only thing to bring them closer to.
+- Never state a cause or a consequence that was not measured. "Your knee was \
+folded to 44 degrees" is a measurement; "this is costing you reach" is a \
+claim about something nobody measured.
+- Use the units exactly as given. A torso length is not a body length.
+- Do not contradict yourself across notes. If a high foot was worth doing at \
+one moment it is worth doing at the next, unless a measurement differs.
 - Say what happened and what to try, in the same sentence. A sentence that \
 only restates the number is the template this is replacing.
 - Where a measurement carries a caveat, do not give advice that depends on \
@@ -73,6 +83,7 @@ the thing the caveat says is unknown.
 when the measurements show it, and say which measurement.
 - Plain language. "Your hips were out to the side of your feet", not \
 "centre of mass lateral displacement".
+- No dashes as punctuation. Use a comma, a semicolon or a full stop.
 - Second person, under 30 words each.
 - A moment with several measurements gets one sentence covering them, not one \
 per number.
